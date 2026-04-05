@@ -26,4 +26,5 @@ Unlike traditional managers, this application operates in a **stateless** manner
    cd stateless-password-manager
 
 ## 📸 Screenshots
-![UI Screenshot](*.png)
+login.png
+passwords.png

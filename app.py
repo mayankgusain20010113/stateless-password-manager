@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, session
+from flask import Flask, request, jsonify, session, render_template
 from functools import wraps
 import os
 import json
@@ -153,6 +153,10 @@ def get_passwords():
 def delete_password(entry_id):
     delete_entry(entry_id)
     return jsonify({"message": "Entry deleted"}), 200
+
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 if __name__ == '__main__':
     print("Starting server on http://127.0.0.1:5000")

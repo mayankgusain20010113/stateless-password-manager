@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lumo Vault - Stateless Password Manager</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #1e293b;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background: var(--card);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--primary);
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .error {
+            color: #ef4444;
+            text-align: center;
+            margin-top: 1rem;
+        }
+
+        .success {
+            color: #10b981;
+            text-align: center;
+            margin-top: 1rem;
+        }
+
+        /* Vault List Styles */
+        .vault-item {
+            background: #f1f5f9;
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .vault-service {
+            font-weight: bold;
+        }
+
+        .vault-pass {
+            background: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            cursor: pointer;
+        }
+
+        .delete-btn {
+            background: #ef4444;
+            width: auto;
+            padding: 4px 12px;
+            font-size: 0.8rem;
+            margin-left: 10px;
+        }
+
+        .nav {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .nav button {
+            width: auto;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <!-- Auth Section -->
+        <div id="auth-section">
+            <h1>Lumo Vault</h1>
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="username" placeholder="Enter username">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="password" placeholder="Enter master password">
+            </div>
+            <button onclick="handleAuth()">Login / Register</button>
+            <p id="auth-msg" class="error"></p>
+        </div>
+
+        <!-- Vault Section -->
+        <div id="vault-section" class="hidden">
+            <div class="nav">
+                <span id="welcome-user"></span>
+                <button onclick="logout()" style="background:#64748b; width:auto;">Logout</button>
+            </div>
+
+            <h2>Add New Password</h2>
+            <div class="form-group">
+                <label>Service Name</label>
+                <input type="text" id="service-name" placeholder="e.g., Google, Netflix">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="new-password" placeholder="Enter password">
+            </div>
+            <div class="form-group">
+                <label>Master Password (for encryption)</label>
+                <input type="password" id="master-pass-input" placeholder="Re-enter master password">
+            </div>
+            <button onclick="savePassword()">Save Password</button>
+            <p id="save-msg" class="error"></p>
+
+            <h2 style="margin-top: 2rem;">Your Vault</h2>
+            <div id="vault-list"></div>
+            <button onclick="loadVault()" style="margin-top: 1rem;">Refresh Vault</button>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let currentUser = null;
+
+        // Helper to handle API calls with cookies
+        async function apiCall(endpoint, method = 'GET', body = null) {
+            const options = {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include' // Important for cookies
+            };
+            if (body) options.body = JSON.stringify(body);
+
+            const res = await fetch(API_BASE + endpoint, options);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'API Error');
+            return data;
+        }
+
+        // Auth Logic
+        async function handleAuth() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const msgEl = document.getElementById('auth-msg');
+
+            if (!username || !password) {
+                msgEl.textContent = "Please fill in all fields";
+                return;
+            }
+
+            try {
+                // Try login first
+                const data = await apiCall('/login', 'POST', { username, password });
+                currentUser = username;
+                showVault();
+            } catch (err) {
+                // If login fails, try register
+                try {
+                    await apiCall('/register', 'POST', { username, password });
+                    // Auto-login after register
+                    const data = await apiCall('/login', 'POST', { username, password });
+                    currentUser = username;
+                    showVault();
+                } catch (regErr) {
+                    msgEl.textContent = regErr.message;
+                }
+            }
+        }
+
+        function showVault() {
+            document.getElementById('auth-section').classList.add('hidden');
+            document.getElementById('vault-section').classList.remove('hidden');
+            document.getElementById('welcome-user').textContent = `Welcome, ${currentUser}`;
+            loadVault();
+        }
+
+        function logout() {
+            currentUser = null;
+            document.getElementById('auth-section').classList.remove('hidden');
+            document.getElementById('vault-section').classList.add('hidden');
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+            document.getElementById('auth-msg').textContent = '';
+        }
+
+        // Vault Logic
+        async function savePassword() {
+            const service = document.getElementById('service-name').value;
+            const password = document.getElementById('new-password').value;
+            const masterPass = document.getElementById('master-pass-input').value;
+            const msgEl = document.getElementById('save-msg');
+
+            if (!service || !password || !masterPass) {
+                msgEl.textContent = "All fields required";
+                return;
+            }
+
+            try {
+                await apiCall('/save', 'POST', { service, password, master_password: masterPass });
+                msgEl.className = 'success';
+                msgEl.textContent = "Saved successfully!";
+                document.getElementById('service-name').value = '';
+                document.getElementById('new-password').value = '';
+                document.getElementById('master-pass-input').value = '';
+                loadVault();
+            } catch (err) {
+                msgEl.className = 'error';
+                msgEl.textContent = err.message;
+            }
+        }
+
+        async function loadVault() {
+            const masterPass = document.getElementById('master-pass-input').value;
+            if (!masterPass) {
+                document.getElementById('vault-list').innerHTML = '<p class="error">Enter master password to view vault.</p>';
+                return;
+            }
+
+            try {
+                const data = await apiCall(`/get?master_password=${encodeURIComponent(masterPass)}`);
+                const list = document.getElementById('vault-list');
+
+                if (data.entries.length === 0) {
+                    list.innerHTML = '<p>No passwords saved yet.</p>';
+                    return;
+                }
+
+                list.innerHTML = data.entries.map(entry => `
+                <div class="vault-item">
+                    <div>
+                        <div class="vault-service">${entry.service}</div>
+                        <div class="vault-pass" onclick="copyToClipboard('$${entry.password}')">$${entry.password}</div>
+                    </div>
+                    <button class="delete-btn" onclick="deleteEntry(${entry.id})">Delete</button>
+                </div>
+            `).join('');
+            } catch (err) {
+                document.getElementById('vault-list').innerHTML = `<p class="error">${err.message}</p>`;
+            }
+        }
+
+        async function deleteEntry(id) {
+            if (!confirm("Are you sure?")) return;
+            try {
+                await apiCall(`/delete/${id}`, 'DELETE');
+                loadVault();
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert("Copied to clipboard!");
+            });
+        }
+    </script>
+
+</body>
+
+</html>
